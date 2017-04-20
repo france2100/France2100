@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
+   <script src="http://vue-charts.hchspersonal.tk/js/vue-charts.js"></script>
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.0.3/vue.min.js"></script>
+   <script src="http://vue-charts.hchspersonal.tk/js/app.js"></script>
+   <!--	<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.3.0/Chart.js"></script>
+   	<script src="http://vue-charts.hchspersonal.tk/js/vue-charts.js"></script>
+   	<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.0.3/vue.min.js"></script>-->
+
+   <head>
+      <title>France 2100</title>
+   </head>
+
+   <script>
+      function exists(x) { return typeof x !== 'undefined'; }
+      function isNumber(x) { return typeof x === 'number'; }
+      function isString(x) { return typeof x === 'string'; }
+      function isFunction(x) { return typeof x === 'function'; }
+      function clone(x) { return JSON.parse(JSON.stringify(x)); }
+
+      function customTooltip(tooltip) {
+         if (!tooltip) return;
+         if (!tooltip.dataPoints) return;
+         tooltip.height *= 3;
+
+         for (var i in tooltip.dataPoints) {
+            var pt = tooltip.dataPoints[i];
+            var dataset = this._data.datasets[pt.datasetIndex];
+            var data = dataset.data[pt.index];
+            var body = tooltip.body[i];
+            body.lines = [];
+            if (exists(data.agregate)) {
+               body.lines.push(dataset.label + " : " + formatNumberWithUnit(data.agregate) + ' (' + Math.round(data.agregatePercent) + '%)');
+               if (data.births > 0) {
+                  body.lines.push("\u2022 immigrants : " + formatNumberWithUnitAndSign(data.immigrants));
+                  body.lines.push("\u2022 assimilations : " + formatNumberWithUnitAndSign(data.assimilations));
+                  body.lines.push("\u2022 naissances : " + formatNumberWithUnitAndSign(data.births));
+                  body.lines.push("\u2022 morts : " + formatNumberWithUnitAndSign(-data.deaths));
+               }
+               else if (pt.index > 0) {
+                  var diff = data.agregate - dataset.data[pt.index - 1].agregate;
+                  body.lines.push("\u2022 interpolation : " + formatNumberWithUnitAndSign(diff));
+               }
+            }
+         }
+      };
+
+      function customLabel(chart) {
+         for (var i in chart.ticks) chart.ticks[i] += '%'
+      };
+
+      function toHtmlColor(c, a) { return "rgba(" + c.r + ", " + c.g + ", " + c.b + ", " + (exists(a) ? a : 1) + ")"; }
+
+      var chartOptions = {
+           responsive: true,
+           maintainAspectRatio: true,
+           legend: { display: false, },
+           scales: {
+               xAxes: [{ display: true, type: 'linear', position: 'bottom', ticks: { min: 2017 } }],
+               yAxes: [{ display: true, afterTickToLabelConversion: customLabel, ticks: { min: 0, max: 100, }}]
+           },
+           tooltips: { custom: customTooltip },
+       };
+
+       var templateDataset =  {
+           fill: false,
+           lineTension: 0.1,
+           backgroundColor: "rgba(75,192,192,0.4)",
+           borderColor: "rgba(75,192,192,1)",
+           borderCapStyle: 'butt',
+           borderDash: [],
+           borderDashOffset: 0.0,
+           borderJoinStyle: 'miter',
+           pointBorderColor: "rgba(75,192,192,1)",
+           pointBackgroundColor: "#fff",
+           pointBorderWidth: 0,
+           pointHoverRadius: 5,
+           pointHoverBackgroundColor: "rgba(75,192,192,1)",
+           pointHoverBorderColor: "rgba(220,220,220,1)",
+           pointHoverBorderWidth: 2,
+           pointRadius: 0,
+           pointHitRadius: 10,
+           spanGaps: false,
+           data: [],
+       };
+
+       var medianColor = "#eee";
+       var medianDataset = clone(templateDataset);
+       medianDataset.label = "";
+       medianDataset.borderColor = medianColor;
+       medianDataset.backgroundColor = medianColor;
+       medianDataset.pointBorderColor = medianColor;
+       medianDataset.pointBackgroundColor = medianColor;
+       medianDataset.pointHoverBorderColor = medianColor;
+       medianDataset.pointHoverBackgroundColor = medianColor;
+
+
+      Vue.use(VueCharts);
+
+      Vue.component('numbox', {
+         props: { width: { default: 25 }, value: {} },
+         template:'<input :value="valToPrettyString(value)" @input="updateValue($event.target.value)" :style="\'width: \' + width + \'ch\'"></input>',
+         methods: {
+            updateValue: function (str) {
+               try {
+                  this.$emit('input',  val(str));
+                  updateAll();
+                  this.$el.className = this.$el.className.replace("invalid", "");
+               }
+               catch(err) {
+                  this.$el.className = this.$el.className.replace("invalid", "") + "invalid";
+                  throw err;
+               }
+            }
+         }
+      });
+
+      Vue.component('notes', { template:'<div class="notes"><slot></slot></div>' });
+
+      Vue.component('row', {
+         props: ['title'],
+         template:'<div class="row"><div class="rowheader">{{ title }}</div><slot></slot></div>',
+      });
+
+      Vue.component('celltable', {
+         template:'<div class="celltable"> \
+            <slot></slot> \
+         </div>',
+      });
+
+      Vue.component('cell', {
+         props: ['title'],
+         template:'<div class="cell"><h2>{{ title }}</h2><div class="cellcontent"><slot></slot></div></div>',
+      });
+   </script>
+   <style>
+      * { box-sizing: border-box; }
+
+      h1 { text-align: center;}
+      h2 { margin: 0px; font-size: 120%; }
+      body { font-family: 'Segoe UI', 'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif; }
+      textarea { margin:1px; padding:2px; overflow:auto; resize: none; font-family: inherit; font-size: 90%; }
+
+      input  { width:25ch; margin:1px; padding:2px; vertical-align: middle; font-family: inherit; font-size: 90%; }
+      select { width:25ch; margin:1px; padding:2px; vertical-align: middle; font-family: inherit; font-size: 90%; }
+      button { width:15ch; padding:2px;}
+      .invalid { border: 1px solid red; background-color: pink; }
+
+      .cell { max-width: 80ch; margin: 0 auto 50px auto; }
+      .cellcontent { width:auto; margin:0 auto; padding-top: 4px; }
+
+      .celltable { display: table; }
+      .row { display: table-row; }
+      .row > * { display: table-cell; }
+      .rowheader { padding-right:4px; width:15ch; vertical-align: top; padding-top: 3px;}
+
+      .notes { font-family: sans-serif; font-size: 80%; padding: 8px 0px 0px 0px; margin: 0px; list-style: decimal; display:block;}
+      .notes li { margin-bottom: 6px;}
+      .note { font-family: sans-serif; font-size: 80%; }
+
+      .navbar { display:table; margin:30px auto 20px auto; }
+      .navbar > div { border:1px solid gray; background-color: #f0f0f0; margin:0px; padding:0px 6px; cursor: default;}
+      .navbar > div:hover { border-color: green; background-color: #dfd; }
+
+      /*
+      .dataradio { display: table-row; margin: 0px; }
+      .dataradio input { margin: 0px 3px 0px 0px; }
+      .dataradio-sub { margin: 1px 0px 8px 16px; }
+      .dataradio-sub ul { padding: 0px; } */
+   </style>
+   <body>
+      <div id="app" style="max-width:90ch; margin:0 auto;">
+         <h1>France 2100</h1>
+         <chartjs-line id="chart" :option="chartOptions" :width="400" :height="200"></chartjs-line>
+
+
+         <div style="margin:5px auto; display:table; width:auto;">
+            <div v-for="group in scenario.groups" style="display:inline-block; margin: 0 8px;">
+               <div :style="'display:inline-block; width: 16px; height: 16px; background-color:' + toHtmlColor(group.color)"></div>
+               <span style="font-weight:80%">{{ group.name }}</span>
+            </div>
+            <div style="margin:5px auto; display:table; width:auto;">
+               <a :href="url">Lien vers cette configuration.</a>
+            </div>
+         </div>
+
+
+         <div style="margin-top: 20px;">
+            <cell title="Scénarios">
+               <div  v-for="s in scenarios" style="display:block;">
+                  <label><input type="radio" :checked="s == scenario" @change="s.select()" style="width: auto; margin:0 2px 0 0;">{{ s.name }}</label>
+               </div>
+               <div style="margin-top: 12px;">
+                  <label><input type="checkbox" v-model:checked="stopImmigration" @change="updateAll()" style="width: auto; margin:0 2px 0 0;">Arrêt immédiat de l'immigration</label>
+               </div>
+               <div style="margin-top: 4px">
+                  <button @click="addScenario" style="margin-right: 4px;">Ajouter</button>
+                  <button @click="removeScenario" :disabled="scenarios.length <= 1">Supprimer</button>
+               </div>
+            </cell>
+
+            <cell title="Scénario actuel">
+               <celltable  style="width: 100%;">
+                  <row title="Nom"><input v-model="scenario.name" style="width: 100%;"/></row>
+                  <row title="Groupes"><input :value="scenario.groupList" @input="scenario.parseGroupList($event.target.value)" style="width: 100%;"/></row>
+                  <row title="Commentaire"><textarea v-model="scenario.comment" rows="3" style="width: 100%; "></textarea></row>
+               </celltable>
+               <notes>
+                  <li>Chacun choisira les groupes à étudier selon sa perspective. J'ai voulu explorer les aspects sociétaux (poids de l'Islam) et la perspective de conflits ethniques.</li>
+                  <li>Le groupe "français" renvoie ici à une identité excluant les noirs et musulmans, ce qui est pertinent dans la perspective de conflits ethniques. En revanche les groupes noirs et musulmans se recouvrent en partie.</li>
+               </notes>
+            </cell>
+
+            <cell title="Population">
+               <celltable>
+                  <row title="Tous"><numbox v-model="scenario.initialSize"></numbox></row>
+                  <row v-for="group in scenario.groups" :title="group.name"><numbox v-model="group.initialSize"></numbox></row>
+               </celltable>
+               <notes>
+                  <li>4 millions de musulmans confessionels (étude TEO 2012 complétée par Trabila).</li>
+                  <li>8 millions de musulmans par origine (y compris enfants de couples mixtes), dont 3.6 religieusement "actifs" (Gourévitch 2011).</li>
+                  <li>3 millions de noirs, dont un quart d'origine domienne (Gourévitch, les Africains de France).</li>
+                  <li>65 millions de personnes en France, dont 63 millions de citoyens français, dont 53 millions de natifs au carré (français dont les deux parents sont français, INSEE 2009).</li>
+                  <li>D'après l'INSEE, 40% des étrangers s'installent en Île-de-France, et 60% de ceux d'origine subsaharienne. Pour les scénarios sur l'IdF, j'ai repris ces proportions pour évaluer chaque population, faute de mieux.</li>
+                  <li>Le reste de la population est considéré comme stable. L'espérance de vie est fixée à {{ scenario.lifeExpectancy }} ans. Ces deux choix sont simplistes mais vraisemblablement peu importants.</li>
+               </notes>
+            </cell>
+
+            <cell title="Générations">
+               <div style="overflow-x:auto;">
+                  <celltable>
+                     <row>
+                        <span style="text-align:center; font-size: 90%">0 - 24</span>
+                        <span style="text-align:center; font-size: 90%">25 - 34</span>
+                        <span style="text-align:center; font-size: 90%">35 - 49</span>
+                        <span style="text-align:center; font-size: 90%">50 - 64</span>
+                        <span style="text-align:center; font-size: 90%">65+</span>
+                     </row>
+                     <row v-for="group in scenario.groups" :title="group.name">
+                        <div><numbox v-model="group.age1" width="10"></numbox></div>
+                        <div><numbox v-model="group.age2" width="10"></numbox></div>
+                        <div><numbox v-model="group.age3" width="10"></numbox></div>
+                        <div><numbox v-model="group.age4" width="10"></numbox></div>
+                        <div><numbox v-model="group.age5" width="10"></numbox></div>
+                     </row>
+                  </celltable>
+               </div>
+               <notes>
+                  <li>Les données par défaut proviennent de l'enquête sur l’implantation et l’évolution de l’Islam de France (IFOP 2009). La catégorie 0-15 ans y étant absente j'ai dû utiliser les données des 15-25, ce qui conduit à sous-estimer le nombre de jeunes musulmanes et donc la natalité de ce groupe.</li>
+                  <li>Les chiffres donnés sont des poids : seuls comptent les rapports entre eux. Peu importe leur somme ou leur valeur individuelle.</li>
+               </notes>
+            </cell>
+
+            <cell title="Fécondité">
+               <celltable>
+                  <row v-for="group in scenario.groups" :title="group.name"><numbox v-model="group.fecundity"></numbox></row>
+               </celltable>
+               <notes>
+                  <li>La fécondité des femmes <i>en France</i> est de 2,0, celle des femmes <i>de nationalité française</i> est de 1,8. On peut supposer que celle des femmes de culture française est sensiblement inférieure.</li>
+                  <li>La fécondité des immigrées maghrébines est de 3,5, celle de leurs filles de 2,1 (INSEE, enquête famille et logements). La fécondité des immigrées sub-sahariennes est de 3,2.</li>
+                  <li>Dans l'hypothèse d'une convergence on pourra prendre pour référence la fécondité des femmes catholiques françaises, de 1,8. Mais si l'immigration se poursuivait la convergence resterait une moyenne de la fécondité africaine et française.</li>
+                  <li>Enfin la fécondité n'est pas forcément condamnée à baisser : en Tunisie elle a cessé de converger vers les niveaux européens pour remonter de 2 à 2,5 (<a href="http://www.lopinion.fr/edition/international/baby-boom-imprevu-monde-arabe-53397">Youssef Courbage</a>).</li>
+               </notes>
+            </cell>
+
+            <cell title="Immigration nette">
+               <celltable>
+                  <row v-for="group in scenario.groups" :title="group.name"><numbox v-model="group.immigration"></numbox></row>
+               </celltable>
+               <notes>
+                  <li>115k titres de séjours de plus d'un an en France ont été délivrés à des primo-bénéficiaires africains en 2014 (<a href="http://www.ined.fr/fr/tout-savoir-population/chiffres/france/flux-immigration/annee-continent/"/>INED</a>). La majorité des immigrés africains restent ensuite, contrairement aux européens.</li>
+                  <li>De plus 10k à 30k demandes d'asile sont accordées chaque année, et 50k demandeurs sont déboutés, dont beaucoup demeurent en France dans la clandestinité (<a href="http://www.immigration.interieur.gouv.fr/Info-ressources/Donnees-statistiques/Donnees-de-l-immigration-de-l-asile-et-de-l-acces-a-la-nationalite-francaise/Les-demandes-d-asile-statistiques">ministère</a>). Environ la moitié des bénéficiaires de l'asile resteront.</li>
+                  <li>Si on présume que l'immigration est au moins en partie proprotionelle à la population africaine (immigration subie), alors son amplitude pourrait fortement augmenter.</li>
+                  <li>L'émigration nette des natifs est de 67k par an (Michèle Tribalat, Assimilation: la fin du modèle français). Cette émigration accélère. Les natifs noirs et musulmans pourraient toutefois y être sur-représentés.</li>
+               </notes>
+            </cell>
+
+            <cell title="Assimilation">
+               <celltable>
+                  <div v-for="conv in scenario.conversions">
+                     <select v-model:value="conv.start" @change="updateAll()">
+                        <option v-for="group in scenario.groups" :value="group.name">{{ group.name }}</option>
+                     </select>
+                     <div style="display:inline-block; margin: 0px 4px"><span>→</span></div>
+                     <select v-model:value="conv.end" @change="updateAll()">
+                        <option v-for="group in scenario.groups" :value="group.name">{{ group.name }}</option>
+                     </select>
+                     <numbox v-model="conv.value" width="10"></numbox>
+                     <label style="display:inline-block;"><input type="checkbox" :checked="conv.isRelative" style="width:auto; margin:0 4px;" @change="updateAll()"><span style="margin: auto 0">variable</span></label>
+                  </div>
+                  <button type="button" @click="scenario.createConversion()">nouveau</button>
+               </celltable>
+               <notes>
+                  <li>A chaque génération il y a 15% de sorties et 7,5% d'entrées chez les musulmans (Institut Montaigne, <a href="http://www.institutmontaigne.org/fr/publications/un-islam-francais-est-possible">Un Islam français est possible</a>).</li>
+                  <li>Toutefois la probabilité de conversion est vraisemblablement proportionelle au rapport de force entre les deux populations, et donc de la pression sociale subie. Cela jouerait en faveur des musulmans une fois passés les 20%.</li>
+                  <li>Le taux de transmission de la religion musulmane chez les immigrés en France est passé de 43% entre 1958-1964, à 87% un quart de siècle plus tard (Tribalat).</li>
+                  <li>Dans les mariages mixtes le taux de transmission est d'environ 50% et indépendant du sexe du parent. Par ailleurs l'endogamie augmente.</li>
+                  <li>Concernant les noirs une assimilation vers les blancs existe via les mariages mixtes qui après quelques générations gomment les différences. Toutefois ces mariages sont en faible proportion et difficiles à évaluer précisément, et il faut plusieurs générations.</li>
+               </notes>
+            </cell>
+
+            <cell title="Commentaire">
+               <div>
+                  <p>Il est impossible de prévoir l'avenir avec certitude, a fortiori quand l'état pénalise la mesure de la réalité (prohibition des statistiques ethniques sauf rares exceptions) ou l'analyse de l'Islam en tant que mouvement de masse (toute mention négative à propos d'un groupe est assimilée à un discours de haine et réprimée). A ce stade les immenses difficultés méthodologiques ne sont que le moindre des problèmes.</p>
+                  <p>Mais l'on ne peut se satisfaire de cette inconnue : <a href="http://www.liberation.fr/debats/2016/12/22/pascal-blanchard-plus-les-lois-contre-les-immigres-sont-dures-plus-les-installations-sont-definitive_1536965">l'immigration de masse</a> et l'Islam changent la société et posent des questions politiques légitimes.</p>
+                  <p>Aussi j'offre au public une simulation paramètrable pour explorer l'ensemble des avenirs possibles. Je l'accompagne d'une mise en garde : nous ne somme pas à la fin de l'Histoire ; la France peut radicalement changer et l'occidentalisation (faible natalité, sécularisation, libéralisme) du monde et des immigrés ne sont pas inévitables. Dans la plupart des pays musulmans (et d'autres), la religiosité et l'ordre moral sont d'ailleurs en hausse, et la natalité y connaît ici et là un regain.</p>
+                  <p>Hélas on ne remet pas en cause si faciement de confortables certitudes, surtout lorsqu'elles socialement valorisées et leur critique un tabou. Certains verront dans tel ou tel problème méthodologique la preuve que la démarche entière est invalide. D'autres soupçonneront l'intention elle-même, ou reprocheront tel choix de mots. D'aucuns aussi choisiront de prêter foi aux hypothèses les plus optimistes ou bien plaideront l'innocuité de ces changements, voire l'interdiction morale de s'y opposer. Les derniers, enfin, se réjouiront tout simplement.</p>
+                  <p>Mais vous, quelle France voulez-vous pour 2100 ? Peut-être vous et vos enfants y serez encore vivants.</p>
+               </div>
+            </cell>
+         </div>
+      </div>
+	</body>
+
+
+
+   <script>
+      var defaultYear = 2017;
+
+      function rgb(r, g, b) { return { r: r, g : g, b : b}; };
+
+      function val(valueOrStr, year, isPercent) {
+         if (isNumber(valueOrStr)) return [{
+            value: valueOrStr,
+            year: isNumber(year) ? year : defaultYear,
+            isPercent: exists(isPercent) ? isPercent : false,
+         }];
+
+         var result = [];
+         var items = valueOrStr.split(',');
+         for (var i = 0; i < items.length; i++) {
+            var str = items[i];
+            if (str.length == 0) continue;
+
+            var num = "([0-9,\\.]+)";
+            var unit = "(m|M|k|\%)?";
+            var whitespaces = "\\s*";
+            var optionalParentL = "(\\(";
+            var optionalParentR = "\\))?";
+            var valRegExp = whitespaces + num + whitespaces + unit + whitespaces + (optionalParentL + whitespaces + num + whitespaces + optionalParentR) + whitespaces;
+
+            var parts = str.match(valRegExp);
+            var value = Number(parts[1]);
+            var isPercent = false;
+            var year = null;
+
+            var unitOrYear = parts[2];
+            if (exists(unitOrYear)) {
+               if (unitOrYear == 'm' || unitOrYear == 'M') value *= 1E6;
+               else if (unitOrYear == 'k') value *= 1E3;
+               else if (unitOrYear == '%') isPercent = true;
+               else year = Number(parts[3]);
+
+               if (exists(parts[4])) year = Number(parts[4]);
+            }
+
+            result = result.concat(val(value, year, isPercent));
+         }
+
+         result.userString = valueOrStr;
+         if (result.length == 0) throw "un nombre est attendu"
+         return result;
+      };
+
+      function valToPrettyString(v) {
+         if (exists(v.userString)) return v.userString;
+
+         if (!exists(v.value)) {
+            var result = '';
+            for (var i = 0; i < v.length; i++) {
+               if (result != '') result += ', ';
+               result += valToPrettyString(v[i]);
+            }
+            return result;
+         }
+
+         var prettyValue = v.isPercent ? formatNumber(v.value) + '%' : formatNumberWithUnit(v.value);
+         return v.year != defaultYear ? prettyValue + " (" + v.year + ")" : prettyValue;
+      };
+
+      function formatNumberWithUnitAndSign(x) {
+         var result = formatNumberWithUnit(x);
+         return (x > 0) ? '+' + result : result;
+      };
+
+      function formatNumberWithUnit(x) {
+         if (Math.abs(x) >= 1E6) return formatNumber(x * 1E-6, 2) + 'M';
+         if (Math.abs(x) >= 1E3) return formatNumber(x * 1E-3, 2) + 'k';
+         return formatNumber(x, 2);
+      };
+
+      function formatNumber(x, minDigits) {
+         var str = x.toString();
+
+         var foundSeparator = false;
+         var lastMeaningful = -1;
+
+         for (var i = 0; i < str.length; i++) {
+            var c = str[i];
+            if (c == '.') {
+               foundSeparator = true;
+            }
+            else if (c >= '0' && c <= '9') {
+               var canZeroBeMeaningful = (lastMeaningful >= 0 && !foundSeparator);
+               if (c >= '1' || canZeroBeMeaningful) lastMeaningful = i;
+               if (lastMeaningful >= 0) minDigits--;
+            }
+
+            if (foundSeparator && minDigits <= 0) return str.substring(0, lastMeaningful + 1);
+         }
+
+         return str;
+      };
+
+
+
+
+
+
+
+
+
+
+      function createScenario(data) {
+         if (!exists(data.lifeExpectancy)) data.lifeExpectancy = 80;
+         if (!exists(data.defaultGroups)) data.defaultGroups = clone(data.groups)
+
+         data.select = function() {
+            app.scenario = this;
+            updateAll();
+         };
+
+         data.createConversion = function() {
+             this.conversions.push({ start: '?', end: '?', value: val("0%"), isRelative: true, });
+         };
+
+         data.parseGroupList = function(str) {
+            function areSameNames(x, y) { return x.toLocaleLowerCase() == y.toLocaleLowerCase(); }
+            this.groupList = str;
+
+            var result = [];
+            var names = str.split(',');
+            var remainingGroups = this.groups.concat([]);
+            var remainingDefaults = this.defaultGroups.concat([]);
+            var defaultGroup = this.defaultGroups[this.defaultGroups.length - 1];
+
+            for (var i = 0; i < names.length; i++) {
+               var name = names[i].trim();
+               function isName(x) { return areSameNames(x.name, name) };
+               function isNotName(x) { return !areSameNames(x.name, name) };
+
+               var index = remainingGroups.findIndex(isName);
+               var group = index >= 0 ? remainingGroups[index] : null;
+               result.push(clone(group));
+
+               remainingDefaults = remainingDefaults.filter(isNotName);
+               remainingGroups = remainingGroups.filter(isNotName);
+            }
+
+            var index = 0;
+            for (var i = 0; i < names.length; i++) {
+               if (result[i] != null) continue;
+
+               var group = null;
+               if (index < remainingGroups.length) group = remainingGroups[index++];
+               else if (index < remainingDefaults.length) group = remainingDefaults[index++];
+               else group = defaultGroup;
+
+               result[i] = clone(group);
+               result[i].name = names[i].trim();
+            }
+
+            this.updateColors(result);
+            this.groups = result;
+
+            function isValidGroupName(name) { return result.some(function(group) { return areSameNames(group.name, name) }) }
+            this.conversions = this.conversions.filter(function(conv) { return isValidGroupName(conv.start) && isValidGroupName(conv.end); })
+            updateAll();
+         };
+
+         data.updateColors = function(result) {
+            var alts = [
+               rgb(128, 0, 0), rgb(0, 128, 0), rgb(0, 0, 128),
+               rgb(128, 64, 0), rgb(64, 128, 0), rgb(64, 0, 128),
+               rgb(128, 0, 64), rgb(0, 128, 64), rgb(0, 64, 128)];
+
+            for (var i in result) {
+               var name = result[i].name;
+               if (name == 'Français') result[i].color = rgb(0, 128, 255);
+               else if (name == 'Musulmans') result[i].color = rgb(0, 204, 102);
+               else if (name == 'Noirs') result[i].color = rgb(153, 0, 0);
+               else result[i].color = alts[i % alts.length];
+            }
+         };
+
+         data.buildGroupList = function() {
+            this.groupList = '';
+            for (i in this.groups) {
+               if (this.groupList.length != 0) this.groupList += ', ';
+               this.groupList += this.groups[i].name;
+            }
+         }
+
+         data.updateColors(data.groups);
+         data.updateColors(data.defaultGroups);
+         data.buildGroupList();
+
+         return data;
+      };
+
+      function createUrl(data) {
+         var data = { scenarios: clone(data.scenarios), index: data.scenarios.indexOf(data.scenario), stopImmigration: data.stopImmigration };
+         var dataJson = JSON.stringify(data);
+         var dataCode = window.btoa(dataJson);
+
+      	var urlExpr = new RegExp(/^.*\//);
+      	var urlBase = window.location.href.split("?")[0];
+         return urlBase + '?data=' + dataCode;
+      }
+
+      function parseUrl(target) {
+         var dataCode = window.location.href.split("?data=")[1];
+         if (!exists(dataCode)) return;
+
+         var dataJson = window.atob(dataCode);
+         var data = JSON.parse(dataJson);
+
+         target.scenarios = data.scenarios;
+         for (i in data.scenarios) target.scenarios[i] = createScenario(target.scenarios[i]);
+
+         target.scenario = data.scenarios[data.index];
+         target.stopImmigration = data.stopImmigration;
+      }
+
+      function addScenario() {
+         app.scenario = createAverageScenario();
+         app.scenarios.push(app.scenario);
+
+         updateAll();
+      }
+
+      function removeScenario() {
+         if (app.scenarios.length <= 1) return;
+         var index = app.scenarios.indexOf(app.scenario);
+         app.scenarios.splice(index, 1);
+
+         index = Math.min(index, app.scenarios.length - 1);
+         app.scenario = app.scenarios[index];
+
+         updateAll();
+      }
+
+
+
+
+
+
+
+
+      function compute() {
+         var datasets = [];
+
+         var scenario = app.scenario;
+         var groups = clone(scenario.groups);
+         var conversions = clone(scenario.conversions);
+
+         var lastImmigrationYear = app.stopImmigration ? 0 : 10000;
+         var lifeExpectancy = scenario.lifeExpectancy;
+         var initialSize = scenario.initialSize;
+         var fixedSize = 0;
+
+         var year = null;
+         var endYear = 2100;
+         var startYear = null;
+         var simulationStart = null;
+
+
+         eval = function(x) {
+            for (var i = 0; i < x.length; i++) {
+               var a = x[i];
+               var b = x[i + 1];
+               if (!exists(b)) return a.value;
+
+               if (year <= b.year) {
+                  if (a.year == b.year) return a.value;
+                  return a.value + (b.value - a.value) * (year - a.year) / (b.year - a.year);
+               }
+            }
+         };
+
+         getFirstYear = function(x) { return x[0].year; }
+         getLastYear = function(x) { return x[x.length - 1].year; }
+
+         createBuckets = function() {
+            for (var i in groups) {
+               var group = groups[i];
+
+               group.buckets = [];
+               for (var y = 1800; y <= 2500; y++) {
+                  group.buckets[y] = { members: 0, deaths: 0, births: 0, immigrants: 0, assimilations: 0, agregate: 0, };
+               }
+            }
+         };
+
+         interpolatePast = function() {
+            startYear = getFirstYear(initialSize);
+            simulatonStart = getLastYear(initialSize);
+
+            for (var i in groups) {
+               var group = groups[i];
+               startYear = Math.max(startYear, getFirstYear(group.initialSize));
+               simulatonStart = Math.min(simulatonStart, getLastYear(group.initialSize));
+            }
+
+            for (year = startYear; year <= simulatonStart; year++) {
+               fixedSize = eval(initialSize);
+               for (var i in groups) {
+                  var group = groups[i];
+                  group.buckets[year].agregate = eval(group.initialSize);
+                  fixedSize -= eval(group.initialSize);
+               }
+            }
+         };
+
+         prepareSimulation = function() {
+            for (var i in conversions) {
+               var conv = conversions[i];
+               conv.end = findGroup(conv.end);
+               conv.start = findGroup(conv.start);
+               if (exists(conv.start) && exists(conv.end)) {
+                  conv.initialRatio = eval(conv.end.initialSize) / eval(conv.start.initialSize);
+               }
+            }
+         };
+
+         findGroup = function(name) {
+            return groups.find(function(x) { return x.name == name; });
+         };
+
+         runSimulation = function() {
+            spawnInitialPopulation();
+            for (; year <= endYear; year++) {
+               updateStats();
+               spawnImmigrants();
+               spawnBabies();
+            }
+         }
+
+         spawnInitialPopulation = function() {
+            for (var i in groups) {
+               var group = groups[i];
+               spawnAdults(group, eval(group.initialSize));
+            }
+         };
+
+         spawnImmigrants = function() {
+            if (year > lastImmigrationYear) return;
+            for (var i in groups) {
+               var group = groups[i];
+
+               var immigrants = eval(group.immigration);
+               group.buckets[year].immigrants += immigrants;
+
+               spawnAdults(group, immigrants);
+            }
+         };
+
+         spawnAdults = function(group, size) {
+            var norm = eval(group.age1) + eval(group.age2) + eval(group.age3) + eval(group.age4) + eval(group.age5);
+
+            spawnAdultsInRange(group, size * eval(group.age1) / norm,  1, 25);
+            spawnAdultsInRange(group, size * eval(group.age2) / norm, 25, 35);
+            spawnAdultsInRange(group, size * eval(group.age3) / norm, 35, 50);
+            spawnAdultsInRange(group, size * eval(group.age4) / norm, 50, 65);
+            spawnAdultsInRange(group, size * eval(group.age5) / norm, 65, lifeExpectancy + 1);
+         };
+
+         spawnAdultsInRange = function(group, size, min, outerMax) {
+            var unit = size / (outerMax - min);
+            for (var age = min; age < outerMax; age++) {
+               var bucket = group.buckets[year - age];
+               bucket.members += unit;
+            }
+         };
+
+         spawnBabies = function() {
+            for (var i in groups) {
+               var group = groups[i];
+
+               // 45 au lieu de 50, pour représenter le fait qu'on a des enfants plutôt jeunes
+               var mothers = countMembersInRange(group, 15, 45) / 2;
+
+               var fecundity = eval(group.fecundity);
+               var yearlyChance = fecundity / (45 - 15);
+               var babies = mothers * yearlyChance;
+
+               spawnBabiesForGroup(group, babies);
+            }
+         };
+
+         spawnBabiesForGroup = function(parentGroup, babies) {
+            var sumConversions = 0;
+
+            for (var i in conversions) {
+               var conv = conversions[i];
+               if (conv.start == parentGroup && exists(conv.end)) {
+                  var converted = babies * getConversionProba(conv);
+                  sumConversions += converted;
+
+                  var target = conv.end.buckets[year];
+                  target.assimilations += converted;
+                  target.members += converted;
+               }
+            }
+
+            var source = parentGroup.buckets[year];
+            source.assimilations -= sumConversions
+            source.members += (babies - sumConversions);
+            source.births += babies;
+         };
+
+         getConversionProba = function(conv) {
+            var p = eval(conv.value) * 0.01;
+            if (conv.isRelative) {
+               var newRatio = conv.end.buckets[year].agregate / conv.start.buckets[year].agregate;
+               p *= (newRatio / conv.initialRatio);
+            }
+            return p;
+         };
+
+         countMembersInRange = function(group, min, max) {
+            var count = 0;
+            var endYear = year - min;
+            var startYear = year - max;  // 45 au lieu de 50, pour représenter le fait qu'on a des enfants plutôt jeunes
+            for (var y = startYear; y <= endYear; y++) count += group.buckets[y].members;
+            return count;
+         };
+
+         updateStats = function() {
+            var deathYear = year - lifeExpectancy;
+            for (var i in groups) {
+               var group = groups[i];
+               var bucket = group.buckets[year];
+               bucket.deaths = group.buckets[deathYear].members;
+
+               for (var y = deathYear + 1; y <= year; y++) {
+                  bucket.agregate += group.buckets[y].members;
+               }
+            }
+         };
+
+         updateUI = function() {
+            createDataSets();
+            createMedianDataset();
+
+            var chart = document.getElementById("chart");
+            chart.__vue__.chart.options.scales.xAxes[0].ticks.min = startYear;
+            chart.__vue__.chart.data.datasets = datasets;
+            chart.__vue__.chart.data.labels = [];
+            chart.__vue__.chart.update();
+         };
+
+         createDataSets = function() {
+            for (var i = 0; i < groups.length; i++) {
+               var color = groups[i].color;
+               var ds = clone(templateDataset);
+               ds.data = createData(groups[i]);
+               ds.label = groups[i].name;
+               ds.borderColor = toHtmlColor(color, 1);
+               ds.backgroundColor = toHtmlColor(color, 0.4);
+               ds.pointBorderColor = toHtmlColor(color, 1);
+               ds.pointBackgroundColor = toHtmlColor(color, 0.4);
+               ds.pointHoverBorderColor = toHtmlColor(color, 1);
+               ds.pointHoverBackgroundColor = toHtmlColor(color, 1);
+               datasets.push(ds);
+            }
+         };
+
+         createMedianDataset = function() {
+            var ds = clone(medianDataset);
+            ds.data.push({x: startYear, y: 50});
+            ds.data.push({x: endYear, y: 50});
+            datasets.push(ds);
+         }
+
+         createData = function(group) {
+            var data = [];
+            for (var year = startYear; year <= endYear; year++) {
+               var agregate = 0;
+               for (var i in groups) agregate += groups[i].buckets[year].agregate;
+
+               var bucket = group.buckets[year];
+               bucket.agregatePercent = 100 * bucket.agregate / agregate;
+               bucket.y = bucket.agregatePercent;
+               bucket.x = year;
+
+               data.push(bucket);
+            }
+            return data;
+         };
+
+         createBuckets();
+         interpolatePast();
+
+         prepareSimulation();
+         runSimulation();
+
+         updateUI();
+      };
+
+      function updateAll() {
+         data.url = createUrl(app);
+         compute();
+      }
+
+
+
+
+      function createAverageScenario() {
+         var french =  {  name: "Français",   initialSize: val("53M"),      age1: val(40), age2: val(16), age3: val(26), age4: val(21), age5: val(21),    fecundity: val(1.6),                  immigration: val(-67E3),   };
+         var muslims = {  name: "Musulmans",  initialSize: val("5M"),       age1: val(87), age2: val(28), age3: val(24), age4: val(9), age5: val(4),      fecundity: val("2.6, 2.0 (2050)"),    immigration: val(80E3),   };
+         var black =   {  name: "Noirs",      initialSize: val("3M"),       age1: val(87), age2: val(28), age3: val(24), age4: val(9), age5: val(4),      fecundity: val("2.6, 2.0 (2050)"),    immigration: val(20E3),    };
+         var groups = [ french, muslims, black ];
+
+         var conversions = [
+            { start: muslims.name, end: french.name, value: val("15%"),   isRelative: true, },
+            { start: french.name, end: muslims.name, value: val("0.75%"), isRelative: true, },
+         ];
+
+         var comment = "Hypothèses équilibrées.";
+         return createScenario({name: "France (équilibré)", comment: comment, initialSize: val("65M"), groups: groups, conversions: conversions, french: french, muslims: muslims, black: black });
+      };
+
+      function createOptimisticScenario() {
+         var result = createAverageScenario();
+         result.muslims.initialSize = val("4M");
+
+         result.french.immigration = val("-67k, 0 (2050)")
+         result.muslims.immigration = val("60k");
+         result.black.immigration = val("15k");
+
+         result.muslims.fecundity = val("2.5, 1.8 (2050)");
+         result.black.fecundity = val("2.5, 1.8 (2050)");
+
+         result.comment = "Population basse, faible immigration (rétention + illégale), baisse de l'émigration des natifs, quasi-convergence fécondité (petit surplus pour immigrées).";
+         result.name = "France (optimiste)"
+         return result;
+      };
+
+      function createPessimisticScenario() {
+         var result = createAverageScenario();
+         result.muslims.initialSize = val("7M");
+
+         result.french.immigration = val("-67k, -120k (2100)")
+         result.muslims.immigration = val("120k, 180k (2100)");
+         result.black.immigration = val("40k, 80k (2100)");
+
+         result.muslims.fecundity = val("2.8, 2.2 (2050)");
+         result.black.fecundity = val("2.8, 2.2 (2050)");
+
+         result.comment = "Population élevée, forte immigration (rétention + illégale) et en hausse, hausse de l'émigration des natifs, maintien d'une fécondité supérieure.";
+         result.name = "France (pessimiste)"
+         return result;
+      };
+
+      function changeForParis(result) {
+         result.initialSize = val("12M");
+
+         result.french.initialSize = val("7M");
+         result.muslims.initialSize = val("2M");
+         result.black.initialSize = val("2M");
+
+         result.french.immigration = val("-10k");
+
+         result.comment = "Île-de-France. " + result.comment;
+      }
+
+      function createParisAverageScenario() {
+         var result = createAverageScenario();
+         changeForParis(result)
+
+         result.muslims.immigration = val("30k");
+         result.black.immigration = val("10k");
+
+         result.name = "Île-de-France (équilibré)";
+         return result;
+      }
+
+      function createParisOptimisticScenario() {
+         var result = createOptimisticScenario();
+         changeForParis(result)
+
+         result.muslims.immigration = val("20k");
+         result.black.immigration = val("8k");
+
+         result.name = "Île-de-France (optimiste)";
+         return result;
+      }
+
+      function createParisPessimisticScenario() {
+         var result = createPessimisticScenario();
+         changeForParis(result)
+
+         result.muslims.immigration = val("40k");
+         result.black.immigration = val("20k");
+
+         result.name = "Île-de-France (pessimiste)";
+         return result;
+      }
+
+
+      var defaultScenarios = [
+         createOptimisticScenario(),
+         createAverageScenario(),
+         createPessimisticScenario(),
+
+         createParisOptimisticScenario(),
+         createParisAverageScenario(),
+         createParisPessimisticScenario(),
+      ];
+
+      var data = {
+         chartOptions: chartOptions,
+         scenarios: defaultScenarios,
+         scenario: defaultScenarios[1],
+         stopImmigration: false,
+         url: "",
+      };
+      parseUrl(data)
+
+      const app = new Vue({el: '#app', data: data});
+      updateAll();
+   </script>
+</html>
